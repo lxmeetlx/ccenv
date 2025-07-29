@@ -73,6 +73,9 @@ ccenv update <名称> --api-key <密钥> --base-url <地址>  # 同时更新
 
 # 实用工具
 ccenv import                              # 导入当前环境变量
+ccenv check-update                        # 检查新版本
+ccenv upgrade                             # 升级到最新版本
+ccenv version                             # 显示版本信息
 ccenv help                                # 显示帮助信息
 ```
 
@@ -120,11 +123,47 @@ export ANTHROPIC_API_KEY="sk-ant-api03-xxx"
 export ANTHROPIC_BASE_URL="https://api.example.com"
 ccenv import  # 会提示保存为新配置
 
+# 保持 ccenv 更新
+ccenv check-update                        # 检查是否有新版本
+ccenv upgrade                             # 升级到最新版本
+ccenv version                             # 显示当前版本
+
 # 健康检查
 ccenv use work
 # 验证配置是否正常工作
 claude --version
 ```
+
+## 🔄 更新 ccenv
+
+### 检查更新
+
+```bash
+ccenv check-update
+```
+
+这将比较您当前的版本与GitHub上的最新版本。
+
+### 升级到最新版本
+
+```bash
+ccenv upgrade
+```
+
+升级过程将会：
+- 从 GitHub 下载最新版本
+- 备份您当前的版本（带时间戳）
+- 用新版本替换脚本
+- 设置正确的权限
+- 验证安装
+
+### 版本信息
+
+```bash
+ccenv version
+```
+
+显示当前版本和 GitHub 仓库链接。
 
 ## 🔧 配置存储
 

@@ -73,6 +73,9 @@ ccenv update <name> --api-key <key> --base-url <url>  # Update both
 
 # Utilities
 ccenv import                              # Import current environment variables
+ccenv check-update                        # Check for new version
+ccenv upgrade                             # Upgrade to latest version
+ccenv version                             # Show version information
 ccenv help                                # Show help information
 ```
 
@@ -120,11 +123,47 @@ export ANTHROPIC_API_KEY="sk-ant-api03-xxx"
 export ANTHROPIC_BASE_URL="https://api.example.com"
 ccenv import  # Will prompt to save as new configuration
 
+# Keep ccenv updated
+ccenv check-update                        # Check if new version available
+ccenv upgrade                             # Upgrade to latest version
+ccenv version                             # Show current version
+
 # Health check
 ccenv use work
 # Verify your configuration is working
 claude --version
 ```
+
+## 🔄 Updating ccenv
+
+### Check for Updates
+
+```bash
+ccenv check-update
+```
+
+This will compare your current version with the latest release on GitHub.
+
+### Upgrade to Latest Version
+
+```bash
+ccenv upgrade
+```
+
+The upgrade process will:
+- Download the latest version from GitHub
+- Backup your current version (with timestamp)
+- Replace the script with the new version
+- Set proper permissions
+- Verify the installation
+
+### Version Information
+
+```bash
+ccenv version
+```
+
+Shows current version and GitHub repository link.
 
 ## 🔧 Configuration Storage
 

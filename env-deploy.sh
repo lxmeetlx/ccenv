@@ -2,8 +2,15 @@
 
 # Claude Code Environment Setup Script
 # Purpose: Automatically configure environment variables for Claude Code on macOS and Linux
+# Version: 1.0.0
 
 set -e  # Exit on error
+
+# Version and update configuration
+SCRIPT_VERSION="1.0.0"
+GITHUB_REPO="lxmeetlx/ccenv"
+SCRIPT_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/main/env-deploy.sh"
+UPDATE_CHECK_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
 
 # Colors for output
 RED='\033[1;31m'
@@ -733,6 +740,142 @@ import_current_config() {
     return 0
 }
 
+# Function to check for updates
+check_for_updates() {
+    print_info "检查更新..."
+    
+    # Check if curl is available
+    if ! command -v curl &> /dev/null; then
+        print_warning "curl 未安装，无法检查更新"
+        return 1
+    fi
+    
+    # Get latest release info from GitHub API
+    local latest_info
+    if ! latest_info=$(curl -s "$UPDATE_CHECK_URL" 2>/dev/null); then
+        print_warning "无法连接到GitHub检查更新"
+        return 1
+    fi
+    
+    # Extract version from response (requires jq)
+    if command -v jq &> /dev/null; then
+        local latest_version=$(echo "$latest_info" | jq -r '.tag_name // empty' 2>/dev/null)
+        
+        if [ -n "$latest_version" ] && [ "$latest_version" != "null" ]; then
+            # Remove 'v' prefix if present
+            latest_version=${latest_version#v}
+            
+            print_info "当前版本: $SCRIPT_VERSION"
+            print_info "最新版本: $latest_version"
+            
+            if [ "$SCRIPT_VERSION" != "$latest_version" ]; then
+                print_warning "发现新版本: $latest_version"
+                echo "运行 'ccenv upgrade' 来更新到最新版本"
+                return 2  # New version available
+            else
+                print_success "您已使用最新版本"
+                return 0
+            fi
+        else
+            print_info "无法获取版本信息"
+            return 1
+        fi
+    else
+        print_warning "需要 jq 工具来检查版本信息"
+        print_info "或者直接运行 'ccenv upgrade' 来更新"
+        return 1
+    fi
+}
+
+# Function to upgrade ccenv
+upgrade_ccenv() {
+    print_info "开始更新 ccenv..."
+    
+    # Check if curl is available
+    if ! command -v curl &> /dev/null; then
+        print_error "curl 未安装，无法下载更新"
+        return 1
+    fi
+    
+    # Get current script path
+    local script_path
+    if command -v ccenv &> /dev/null; then
+        script_path=$(which ccenv)
+    else
+        script_path="$0"
+    fi
+    
+    print_info "当前脚本路径: $script_path"
+    
+    # Create temporary file
+    local temp_file=$(mktemp)
+    
+    # Download latest version
+    print_info "从 GitHub 下载最新版本..."
+    if ! curl -fsSL "$SCRIPT_URL" -o "$temp_file"; then
+        print_error "下载失败: $SCRIPT_URL"
+        rm -f "$temp_file"
+        return 1
+    fi
+    
+    # Verify download
+    if [ ! -s "$temp_file" ]; then
+        print_error "下载的文件为空"
+        rm -f "$temp_file"
+        return 1
+    fi
+    
+    # Check if it's a valid shell script
+    if ! head -n 1 "$temp_file" | grep -q "#!/bin/bash"; then
+        print_error "下载的文件不是有效的 Bash 脚本"
+        rm -f "$temp_file"
+        return 1
+    fi
+    
+    # Backup current version
+    local backup_file="${script_path}.backup.$(date +%Y%m%d_%H%M%S)"
+    if [ -f "$script_path" ]; then
+        print_info "备份当前版本到: $backup_file"
+        if ! sudo cp "$script_path" "$backup_file" 2>/dev/null; then
+            print_warning "无法创建备份文件"
+        fi
+    fi
+    
+    # Replace the script
+    print_info "安装新版本..."
+    if ! sudo cp "$temp_file" "$script_path"; then
+        print_error "更新失败: 无法替换脚本文件"
+        rm -f "$temp_file"
+        return 1
+    fi
+    
+    # Set permissions
+    if ! sudo chmod +x "$script_path"; then
+        print_error "更新失败: 无法设置执行权限"
+        rm -f "$temp_file"
+        return 1
+    fi
+    
+    # Clean up
+    rm -f "$temp_file"
+    
+    print_success "ccenv 更新完成！"
+    
+    # Show new version
+    if command -v ccenv &> /dev/null; then
+        print_info "新版本信息:"
+        ccenv version 2>/dev/null || true
+    fi
+    
+    return 0
+}
+
+# Function to show version information
+show_version() {
+    echo "ccenv version $SCRIPT_VERSION"
+    echo "GitHub: https://github.com/$GITHUB_REPO"
+}
+
 # Show help information
 show_help() {
     echo "用法: $0 <命令> [参数...]"
@@ -745,6 +888,9 @@ show_help() {
     echo "  update <name> [--api-key <key>] [--base-url <url>]    更新指定配置的密钥或URL"
     echo "  remove <name>                                         删除一个配置"
     echo "  import                                                读取当前环境变量并可选择保存为配置"
+    echo "  check-update                                          检查是否有新版本可用"
+    echo "  upgrade                                               升级到最新版本"
+    echo "  version                                               显示版本信息"
     echo "  help                                                  显示此帮助信息"
     echo
     echo "示例:"
@@ -805,6 +951,15 @@ main() {
             ;;
         import)
             import_current_config
+            ;;
+        check-update)
+            check_for_updates
+            ;;
+        upgrade)
+            upgrade_ccenv
+            ;;
+        version)
+            show_version
             ;;
         help)
             show_help

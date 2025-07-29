@@ -167,6 +167,25 @@ install_ccenv() {
 verify_installation() {
     print_info "验证安装..."
     
+    local install_path="$INSTALL_DIR/$SCRIPT_NAME"
+    
+    # Check if file exists
+    if [ ! -f "$install_path" ]; then
+        print_error "ccenv 文件不存在: $install_path"
+        return 1
+    fi
+    
+    # Check and fix permissions if needed
+    if [ ! -x "$install_path" ]; then
+        print_warning "检测到权限问题，正在修复..."
+        if ! sudo chmod +x "$install_path"; then
+            print_error "无法设置执行权限"
+            return 1
+        fi
+        print_success "权限已修复"
+    fi
+    
+    # Check if command is available in PATH
     if ! command -v ccenv &> /dev/null; then
         print_error "ccenv 命令未找到"
         print_info "请确保 $INSTALL_DIR 在您的 PATH 中"
@@ -180,6 +199,7 @@ verify_installation() {
         return 0
     else
         print_warning "ccenv 已安装但可能无法正常工作"
+        print_info "请检查文件权限: ls -la $install_path"
         return 1
     fi
 }
