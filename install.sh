@@ -151,7 +151,8 @@ install_ccenv() {
         exit 1
     fi
     
-    if ! sudo chmod +x "$install_path"; then
+    # Set proper permissions (755 = rwxr-xr-x)
+    if ! sudo chmod 755 "$install_path"; then
         print_error "安装失败: 无法设置执行权限"
         rm -f "$temp_file"
         exit 1
@@ -176,10 +177,10 @@ verify_installation() {
     fi
     
     # Check and fix permissions if needed
-    if [ ! -x "$install_path" ]; then
+    if [ ! -x "$install_path" ] || [ ! -r "$install_path" ]; then
         print_warning "检测到权限问题，正在修复..."
-        if ! sudo chmod +x "$install_path"; then
-            print_error "无法设置执行权限"
+        if ! sudo chmod 755 "$install_path"; then
+            print_error "无法设置正确权限"
             return 1
         fi
         print_success "权限已修复"

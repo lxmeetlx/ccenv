@@ -849,9 +849,9 @@ upgrade_ccenv() {
         return 1
     fi
     
-    # Set permissions
-    if ! sudo chmod +x "$script_path"; then
-        print_error "更新失败: 无法设置执行权限"
+    # Set proper permissions (755 = rwxr-xr-x)
+    if ! sudo chmod 755 "$script_path"; then
+        print_error "更新失败: 无法设置正确权限"
         rm -f "$temp_file"
         return 1
     fi
