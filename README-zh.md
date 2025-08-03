@@ -60,7 +60,8 @@ ccenv use work
 
 ```bash
 # 配置管理
-ccenv add <名称> <api-密钥> [服务器地址]    # 添加新配置
+ccenv add                                 # 交互式配置向导
+ccenv quick-add <名称> <api-密钥> [服务器地址] # 快速添加配置
 ccenv list                                # 列出所有配置
 ccenv use <名称>                          # 切换到指定配置
 ccenv switch                              # 交互式配置选择器
@@ -73,6 +74,7 @@ ccenv update <名称> --api-key <密钥> --base-url <地址>  # 同时更新
 
 # 实用工具
 ccenv import                              # 导入当前环境变量
+ccenv models <set|show|reset>             # 管理模型设置
 ccenv check-update                        # 检查新版本
 ccenv upgrade                             # 升级到最新版本
 ccenv version                             # 显示版本信息
@@ -82,25 +84,83 @@ ccenv help                                # 显示帮助信息
 ### 简短别名
 
 ```bash
-ccenv a work sk-xxx        # 等同于: ccenv add work sk-xxx
+ccenv a                    # 等同于: ccenv add
 ccenv l                    # 等同于: ccenv list
 ccenv s                    # 等同于: ccenv switch
 ccenv u work               # 等同于: ccenv use work
 ```
+
+## 🧙‍♂️ 交互式配置添加向导
+
+`ccenv add` 命令提供逐步交互式向导来添加配置：
+
+```bash
+ccenv add
+```
+
+### 功能特性:
+- **逐步指导**: 逐项提示配置内容
+- **智能预设**: 提供常用服务器选项（官方、自定义）
+- **输入验证**: 确保至少设置一个配置项
+- **安全输入**: API密钥输入时自动隐藏
+- **配置预览**: 保存前显示配置摘要
+- **错误处理**: 验证输入并提供有用的反馈
+
+### 工作流程:
+1. **配置名称**: 输入配置的唯一名称
+2. **API服务器**: 从预设选项中选择或输入自定义地址
+3. **API密钥**: 输入Claude API密钥（输入时隐藏保护）
+4. **认证令牌**: 可选的认证令牌
+5. **确认保存**: 预览所有设置后确认保存
+
+这非常适合初次使用的用户或需要设置复杂配置的场景。
+
+## 🤖 模型管理
+
+ccenv 支持通过 `models` 命令管理 Claude 模型设置：
+
+### 命令:
+- `ccenv models set <主模型> <轻量级模型>` - 设置主模型和轻量级模型
+- `ccenv models show` - 显示当前模型设置
+- `ccenv models reset` - 重置为默认 Claude 模型
+
+### 示例:
+```bash
+# 设置官方 Claude 模型
+ccenv models set claude-3-5-sonnet-20241022 claude-3-haiku-20240307
+
+# 设置自定义模型（如第三方API）
+ccenv models set kimi-k2-turbo-preview kimi-k2-turbo-preview
+
+# 查看当前设置
+ccenv models show
+
+# 重置为默认设置
+ccenv models reset
+```
+
+### 环境变量:
+- `ANTHROPIC_MODEL` - 用于复杂任务的主模型
+- `ANTHROPIC_SMALL_FAST_MODEL` - 用于快速任务的轻量级模型
+
+模型设置按配置存储，在切换配置时会自动应用相应的模型设置。
 
 ## 💡 使用示例
 
 ### 典型工作流程
 
 ```bash
-# 设置工作环境
-ccenv add work sk-ant-api03-work-key-here
+# 交互式配置添加（逐步向导）
+ccenv add
+
+# 快速设置工作环境
+ccenv quick-add work sk-ant-api03-work-key-here
 
 # 设置开发环境（自定义服务器）
-ccenv add dev sk-ant-api03-dev-key-here https://dev-api.example.com
+ccenv quick-add dev sk-ant-api03-dev-key-here https://dev-api.example.com
 
-# 设置中国镜像
-ccenv add china sk-ant-api03-china-key https://api.aicodemirror.com/api/claudecode
+# 设置备用服务器
+ccenv quick-add alt sk-ant-api03-alt-key https://custom-api.example.com
 
 # 在环境间切换
 ccenv use work      # 切换到工作环境
@@ -114,6 +174,9 @@ ccenv list
 ### 高级用法
 
 ```bash
+# 交互式添加新配置
+ccenv add
+
 # 更新现有配置
 ccenv update work --api-key sk-ant-api03-new-work-key
 ccenv update dev --base-url https://new-dev-api.example.com
@@ -122,6 +185,12 @@ ccenv update dev --base-url https://new-dev-api.example.com
 export ANTHROPIC_API_KEY="sk-ant-api03-xxx"
 export ANTHROPIC_BASE_URL="https://api.example.com"
 ccenv import  # 会提示保存为新配置
+
+# 管理模型设置
+ccenv models set claude-3-5-sonnet-20241022 claude-3-haiku-20240307  # 设置 Claude 模型
+ccenv models set kimi-k2-turbo-preview kimi-k2-turbo-preview         # 设置自定义模型
+ccenv models show                         # 显示当前模型设置
+ccenv models reset                        # 重置为默认模型
 
 # 保持 ccenv 更新
 ccenv check-update                        # 检查是否有新版本

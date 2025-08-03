@@ -2,12 +2,12 @@
 
 # Claude Code Environment Setup Script
 # Purpose: Automatically configure environment variables for Claude Code on macOS and Linux
-# Version: 1.0.0
+# Version: 1.1.0
 
 set -e  # Exit on error
 
 # Version and update configuration
-SCRIPT_VERSION="1.0.0"
+SCRIPT_VERSION="1.1.0"
 GITHUB_REPO="lxmeetlx/ccenv"
 SCRIPT_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/main/env-deploy.sh"
 UPDATE_CHECK_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
@@ -97,8 +97,8 @@ init_config_store() {
     fi
 }
 
-# Function to add a new configuration
-add_config() {
+# Function to quickly add a new configuration
+quick_add_config() {
     local config_name="$1"
     local api_key="$2"
     local base_url="$3"
@@ -125,9 +125,10 @@ add_config() {
         print_info "使用自定义 Base URL: $base_url"
     fi
     
-    # Add the config
+    # Add the config (with empty auth_token and default models)
     jq --arg name "$config_name" --arg key "$api_key" --arg url "$base_url" \
-       '.configs[$name] = {"api_key": $key, "base_url": $url}' "$CONFIG_STORE" > "$CONFIG_STORE.tmp"
+       --arg main_model "" --arg fast_model "" \
+       '.configs[$name] = {"api_key": $key, "base_url": $url, "auth_token": "", "main_model": $main_model, "fast_model": $fast_model}' "$CONFIG_STORE" > "$CONFIG_STORE.tmp"
     mv "$CONFIG_STORE.tmp" "$CONFIG_STORE"
     
     print_success "已添加配置: $config_name"
@@ -156,14 +157,32 @@ list_configs() {
         jq -r '.configs | keys[]' "$CONFIG_STORE" | while read -r config_name; do
             local api_key=$(jq -r ".configs.\"$config_name\".api_key" "$CONFIG_STORE")
             local base_url=$(jq -r ".configs.\"$config_name\".base_url" "$CONFIG_STORE")
+            local auth_token=$(jq -r ".configs.\"$config_name\".auth_token" "$CONFIG_STORE")
             
+            # 显示配置名称和状态
             if [ "$config_name" == "$active_config" ]; then
-                echo -e "* ${GREEN}$config_name${NC} (API密钥: ****${api_key: -4})"
-                echo -e "  Base URL: $base_url"
+                echo -e "* ${GREEN}$config_name${NC}"
             else
-                echo -e "  $config_name (API密钥: ****${api_key: -4})"
-                echo -e "  Base URL: $base_url"
+                echo -e "  $config_name"
             fi
+            
+            # 显示Base URL
+            echo -e "  Base URL: $base_url"
+            
+            # 显示API密钥状态
+            if [ -n "$api_key" ] && [ "$api_key" != "null" ] && [ "$api_key" != "" ]; then
+                echo -e "  API密钥: ****${api_key: -4}"
+            else
+                echo -e "  API密钥: ${YELLOW}(未设置)${NC}"
+            fi
+            
+            # 显示认证令牌状态
+            if [ -n "$auth_token" ] && [ "$auth_token" != "null" ] && [ "$auth_token" != "" ]; then
+                echo -e "  认证令牌: ****${auth_token: -4}"
+            else
+                echo -e "  认证令牌: ${YELLOW}(未设置)${NC}"
+            fi
+            
             echo
         done
     fi
@@ -201,9 +220,12 @@ use_config() {
     jq --arg name "$config_name" '.active = $name' "$CONFIG_STORE" > "$CONFIG_STORE.tmp"
     mv "$CONFIG_STORE.tmp" "$CONFIG_STORE"
     
-    # Get API key and base URL
+    # Get API key, base URL, auth token, and models
     ANTHROPIC_API_KEY=$(jq -r ".configs.\"$config_name\".api_key" "$CONFIG_STORE")
     ANTHROPIC_BASE_URL=$(jq -r ".configs.\"$config_name\".base_url" "$CONFIG_STORE")
+    ANTHROPIC_AUTH_TOKEN=$(jq -r ".configs.\"$config_name\".auth_token // \"\"" "$CONFIG_STORE")
+    local main_model=$(jq -r ".configs.\"$config_name\".main_model // empty" "$CONFIG_STORE")
+    local fast_model=$(jq -r ".configs.\"$config_name\".fast_model // empty" "$CONFIG_STORE")
     
     print_success "已切换到配置: $config_name"
     
@@ -211,6 +233,15 @@ use_config() {
     detect_os_and_shell
     add_env_vars
     update_claude_json
+    
+    # Apply model settings (always call to ensure cleanup of empty models)
+    apply_model_settings "$main_model" "$fast_model"
+    if [ -n "$main_model" ] && [ -n "$fast_model" ] && [ "$main_model" != "null" ] && [ "$fast_model" != "null" ]; then
+        print_info "已应用模型设置: 主模型=$main_model, 轻量级模型=$fast_model"
+    else
+        print_info "已清除模型环境变量（使用默认模型）"
+    fi
+    
     activate_config
     verify_config
     
@@ -299,9 +330,16 @@ update_config() {
     fi
     echo -e "${BLUE}----------------------------------------${NC}"
     
-    # Update the config
+    # Get current model settings to preserve them
+    current_main_model=$(jq -r ".configs.\"$config_name\".main_model // \"\"" "$CONFIG_STORE")
+    current_fast_model=$(jq -r ".configs.\"$config_name\".fast_model // \"\"" "$CONFIG_STORE")
+    current_auth_token=$(jq -r ".configs.\"$config_name\".auth_token // \"\"" "$CONFIG_STORE")
+    
+    # Update the config while preserving all fields
     jq --arg name "$config_name" --arg key "$update_api_key" --arg url "$update_base_url" \
-       '.configs[$name] = {"api_key": $key, "base_url": $url}' "$CONFIG_STORE" > "$CONFIG_STORE.tmp"
+       --arg main_model "$current_main_model" --arg fast_model "$current_fast_model" \
+       --arg auth_token "$current_auth_token" \
+       '.configs[$name] = {"api_key": $key, "base_url": $url, "auth_token": $auth_token, "main_model": $main_model, "fast_model": $fast_model}' "$CONFIG_STORE" > "$CONFIG_STORE.tmp"
     mv "$CONFIG_STORE.tmp" "$CONFIG_STORE"
     
     print_success "配置 '$config_name' 已更新"
@@ -314,6 +352,7 @@ update_config() {
         # Set the updated values
         ANTHROPIC_API_KEY="$update_api_key"
         ANTHROPIC_BASE_URL="$update_base_url"
+        ANTHROPIC_AUTH_TOKEN=$(jq -r ".configs.\"$config_name\".auth_token // \"\"" "$CONFIG_STORE")
         
         # Apply the configuration
         detect_os_and_shell
@@ -575,7 +614,7 @@ add_env_vars() {
 # Claude Code Environment Variables
 set -x ANTHROPIC_BASE_URL "$ANTHROPIC_BASE_URL"
 set -x ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"
-set -x ANTHROPIC_AUTH_TOKEN ""
+set -x ANTHROPIC_AUTH_TOKEN "$ANTHROPIC_AUTH_TOKEN"
 # End Claude Code Environment Variables
 EOF
     else
@@ -584,7 +623,7 @@ EOF
 # Claude Code Environment Variables
 export ANTHROPIC_BASE_URL="$ANTHROPIC_BASE_URL"
 export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"
-export ANTHROPIC_AUTH_TOKEN=""
+export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_AUTH_TOKEN"
 # End Claude Code Environment Variables
 EOF
     fi
@@ -634,7 +673,7 @@ activate_config() {
     # Export variables for current session
     export ANTHROPIC_BASE_URL="$ANTHROPIC_BASE_URL"
     export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"
-    export ANTHROPIC_AUTH_TOKEN=""
+    export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_AUTH_TOKEN"
     
     print_success "环境变量已在当前会话中激活"
     print_info "要在新的终端会话中使用，请运行以下命令："
@@ -679,24 +718,57 @@ verify_config() {
 import_current_config() {
     print_info "读取当前环境变量..."
     
-    # Check if environment variables are set
-    if [ -z "$ANTHROPIC_API_KEY" ]; then
-        print_error "当前环境中没有设置 ANTHROPIC_API_KEY 变量"
-        return 1
-    fi
+    # Check if any relevant environment variables are set
+    local has_vars=false
     
     # Display current values
     echo -e "${BLUE}----------------------------------------${NC}"
     echo "检测到以下环境变量:"
-    echo "ANTHROPIC_API_KEY: ****${ANTHROPIC_API_KEY: -4}"
+    
+    if [ -n "$ANTHROPIC_API_KEY" ]; then
+        echo "ANTHROPIC_API_KEY: ****${ANTHROPIC_API_KEY: -4}"
+        has_vars=true
+    else
+        echo "ANTHROPIC_API_KEY: (未设置)"
+    fi
     
     if [ -n "$ANTHROPIC_BASE_URL" ]; then
         echo "ANTHROPIC_BASE_URL: $ANTHROPIC_BASE_URL"
+        has_vars=true
     else
-        ANTHROPIC_BASE_URL="https://api.anthropic.com"
-        echo "ANTHROPIC_BASE_URL: $ANTHROPIC_BASE_URL (默认值)"
+        local default_base_url="https://api.anthropic.com"
+        echo "ANTHROPIC_BASE_URL: $default_base_url (默认值)"
+        ANTHROPIC_BASE_URL="$default_base_url"
     fi
+    
+    if [ -n "$ANTHROPIC_AUTH_TOKEN" ]; then
+        echo "ANTHROPIC_AUTH_TOKEN: ****${ANTHROPIC_AUTH_TOKEN: -4}"
+        has_vars=true
+    else
+        echo "ANTHROPIC_AUTH_TOKEN: (未设置)"
+    fi
+    
+    if [ -n "$ANTHROPIC_MODEL" ]; then
+        echo "ANTHROPIC_MODEL: $ANTHROPIC_MODEL"
+        has_vars=true
+    else
+        echo "ANTHROPIC_MODEL: (未设置)"
+    fi
+    
+    if [ -n "$ANTHROPIC_SMALL_FAST_MODEL" ]; then
+        echo "ANTHROPIC_SMALL_FAST_MODEL: $ANTHROPIC_SMALL_FAST_MODEL"
+        has_vars=true
+    else
+        echo "ANTHROPIC_SMALL_FAST_MODEL: (未设置)"
+    fi
+    
     echo -e "${BLUE}----------------------------------------${NC}"
+    
+    # Check if at least one variable is set
+    if [ "$has_vars" = false ]; then
+        print_warning "当前环境中没有设置任何 Claude Code 相关的环境变量"
+        print_info "您仍然可以保存一个基础配置"
+    fi
     
     # Ask if user wants to save as a new config
     print_info "是否要将当前环境变量保存为新配置? (y/n)"
@@ -720,9 +792,29 @@ import_current_config() {
             print_warning "配置 '$config_name' 已存在，将被覆盖"
         fi
         
-        # Add the config
-        jq --arg name "$config_name" --arg key "$ANTHROPIC_API_KEY" --arg url "$ANTHROPIC_BASE_URL" \
-           '.configs[$name] = {"api_key": $key, "base_url": $url}' "$CONFIG_STORE" > "$CONFIG_STORE.tmp"
+        # Add the config (including model settings from environment)
+        # Use environment variables if set, otherwise preserve existing values or use defaults
+        local import_api_key="${ANTHROPIC_API_KEY:-}"
+        local import_base_url="${ANTHROPIC_BASE_URL:-https://api.anthropic.com}"
+        local import_auth_token="${ANTHROPIC_AUTH_TOKEN:-}"
+        local import_main_model="${ANTHROPIC_MODEL:-}"
+        local import_fast_model="${ANTHROPIC_SMALL_FAST_MODEL:-}"
+        
+        # If config exists and we're overwriting, show what's being updated
+        if jq -e ".configs.\"$config_name\"" "$CONFIG_STORE" >/dev/null 2>&1; then
+            print_info "正在用当前环境变量覆盖配置 '$config_name':"
+            echo -e "${BLUE}----------------------------------------${NC}"
+            echo "API密钥: ${import_api_key:+****${import_api_key: -4}}"
+            echo "Base URL: $import_base_url"
+            echo "认证令牌: ${import_auth_token:+****${import_auth_token: -4}}"
+            echo "主模型: ${import_main_model:-"(未设置)"}"
+            echo "轻量级模型: ${import_fast_model:-"(未设置)"}"
+            echo -e "${BLUE}----------------------------------------${NC}"
+        fi
+        
+        jq --arg name "$config_name" --arg key "$import_api_key" --arg url "$import_base_url" \
+           --arg auth_token "$import_auth_token" --arg main_model "$import_main_model" --arg fast_model "$import_fast_model" \
+           '.configs[$name] = {"api_key": $key, "base_url": $url, "auth_token": $auth_token, "main_model": $main_model, "fast_model": $fast_model}' "$CONFIG_STORE" > "$CONFIG_STORE.tmp"
         mv "$CONFIG_STORE.tmp" "$CONFIG_STORE"
         
         print_success "已添加配置: $config_name"
@@ -738,6 +830,400 @@ import_current_config() {
     fi
     
     return 0
+}
+
+# Function to add configuration interactively
+add_config_interactive() {
+    echo
+    echo -e "${BLUE}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║                                                          ║${NC}"
+    echo -e "${BLUE}║                  交互式配置添加向导                       ║${NC}"
+    echo -e "${BLUE}║                                                          ║${NC}"
+    echo -e "${BLUE}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo
+    
+    # Step 1: 配置名称
+    print_info "步骤 1/4: 输入配置名称"
+    echo -n "请输入配置名称 (例如: work, personal, dev): "
+    read -r config_name
+    
+    # 验证配置名称
+    while [ -z "$config_name" ]; do
+        print_error "配置名称不能为空"
+        echo -n "请重新输入配置名称: "
+        read -r config_name
+    done
+    
+    print_success "配置名称: $config_name"
+    echo
+    
+    # Step 2: Base URL
+    print_info "步骤 2/4: 输入 API 服务器地址"
+    echo "常用选项:"
+    echo "  1. 官方服务器: https://api.anthropic.com"
+    echo "  2. 自定义地址"
+    echo "  3. 跳过 (留空)"
+    echo
+    echo -n "请选择 (1-3) 或直接输入地址: "
+    read -r base_url_choice
+    
+    case "$base_url_choice" in
+        1)
+            input_base_url="https://api.anthropic.com"
+            ;;
+        2)
+            echo -n "请输入自定义服务器地址: "
+            read -r input_base_url
+            ;;
+        3|"")
+            input_base_url=""
+            ;;
+        *)
+            # 直接输入的地址
+            if [[ "$base_url_choice" == http* ]]; then
+                input_base_url="$base_url_choice"
+            else
+                print_warning "输入格式不正确，将留空"
+                input_base_url=""
+            fi
+            ;;
+    esac
+    
+    if [ -n "$input_base_url" ]; then
+        print_success "API 服务器地址: $input_base_url"
+    else
+        print_info "API 服务器地址: (未设置)"
+    fi
+    echo
+    
+    # Step 3: API Key
+    print_info "步骤 3/4: 输入 API 密钥"
+    echo "请输入您的 Claude API 密钥 (格式: sk-ant-api03-xxx)"
+    echo -n "API 密钥 (输入时会隐藏): "
+    read -s input_api_key
+    echo  # 换行
+    
+    if [ -n "$input_api_key" ]; then
+        print_success "API 密钥: ****${input_api_key: -4}"
+    else
+        print_info "API 密钥: (未设置)"
+    fi
+    echo
+    
+    # Step 4: Auth Token
+    print_info "步骤 4/4: 输入认证令牌 (可选)"
+    echo "如果您使用自定义认证，请输入认证令牌，否则留空"
+    echo -n "认证令牌 (可选): "
+    read -r input_auth_token
+    
+    if [ -n "$input_auth_token" ]; then
+        print_success "认证令牌: ****${input_auth_token: -4}"
+    else
+        print_info "认证令牌: (未设置)"
+    fi
+    echo
+    
+    # 验证至少有一个配置项不为空
+    if [ -z "$input_base_url" ] && [ -z "$input_api_key" ] && [ -z "$input_auth_token" ]; then
+        print_error "错误: 至少需要设置一个配置项 (API服务器地址、API密钥、认证令牌)"
+        print_info "请重新运行 'ccenv add' 命令"
+        return 1
+    fi
+    
+    # 显示配置摘要
+    echo -e "${BLUE}════════════════ 配置摘要 ════════════════${NC}"
+    echo "配置名称: $config_name"
+    echo "API 服务器: ${input_base_url:-"(使用默认)"}"
+    echo "API 密钥: ${input_api_key:+****${input_api_key: -4}}"
+    echo "认证令牌: ${input_auth_token:+****${input_auth_token: -4}}"
+    echo -e "${BLUE}═══════════════════════════════════════════${NC}"
+    echo
+    
+    # 确认保存
+    echo -n "确认保存此配置? (y/N): "
+    read -r confirm
+    
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        # 使用默认值填充空配置
+        final_base_url="${input_base_url:-https://api.anthropic.com}"
+        final_api_key="${input_api_key:-}"
+        final_auth_token="${input_auth_token:-}"
+        
+        # 保存配置 (复用现有的 add_config 逻辑)
+        check_jq
+        init_config_store
+        
+        # 检查配置名是否已存在
+        if jq -e ".configs.\"$config_name\"" "$CONFIG_STORE" >/dev/null 2>&1; then
+            print_warning "配置 '$config_name' 已存在，将被覆盖"
+        fi
+        
+        # 创建配置对象（包含默认模型设置）
+        local config_json=$(jq -n \
+            --arg api_key "$final_api_key" \
+            --arg base_url "$final_base_url" \
+            --arg auth_token "$final_auth_token" \
+            --arg main_model "" \
+            --arg fast_model "" \
+            '{
+                "api_key": $api_key,
+                "base_url": $base_url,
+                "auth_token": $auth_token,
+                "main_model": $main_model,
+                "fast_model": $fast_model
+            }')
+        
+        # 保存配置
+        jq --arg name "$config_name" --argjson config "$config_json" \
+           '.configs[$name] = $config' "$CONFIG_STORE" > "$CONFIG_STORE.tmp"
+        mv "$CONFIG_STORE.tmp" "$CONFIG_STORE"
+        
+        print_success "配置 '$config_name' 已保存"
+        
+        # 如果是第一个配置，设为活动配置
+        if [ "$(jq -r '.active' "$CONFIG_STORE")" == "null" ]; then
+            jq --arg name "$config_name" '.active = $name' "$CONFIG_STORE" > "$CONFIG_STORE.tmp"
+            mv "$CONFIG_STORE.tmp" "$CONFIG_STORE"
+            print_info "已将 '$config_name' 设置为活动配置"
+        fi
+        
+        echo
+        echo -e "${GREEN}✓ 配置添加完成！${NC}"
+        echo
+        echo "接下来您可以:"
+        echo "  ccenv use $config_name    # 切换到此配置"
+        echo "  ccenv list               # 查看所有配置"
+        echo "  ccenv switch             # 交互式选择配置"
+        
+    else
+        print_info "配置添加已取消"
+        return 0
+    fi
+    
+    return 0
+}
+
+# Function to manage model settings
+manage_models() {
+    local subcommand="$1"
+    
+    case "$subcommand" in
+        set)
+            set_models "$2" "$3"
+            ;;
+        show)
+            show_models
+            ;;
+        reset)
+            reset_models
+            ;;
+        *)
+            print_error "未知的models子命令: $subcommand"
+            echo "用法: ccenv models <set|show|reset> [参数...]"
+            echo
+            echo "子命令:"
+            echo "  set <main-model> <fast-model>    设置主模型和轻量级模型"
+            echo "  show                             显示当前模型设置"
+            echo "  reset                            重置为默认模型"
+            echo
+            echo "示例:"
+            echo "  ccenv models set claude-3-5-sonnet-20241022 claude-3-haiku-20240307"
+            echo "  ccenv models set kimi-k2-turbo-preview kimi-k2-turbo-preview"
+            echo "  ccenv models show"
+            echo "  ccenv models reset"
+            return 1
+            ;;
+    esac
+}
+
+# Function to set model configuration
+set_models() {
+    local main_model="$1"
+    local fast_model="$2"
+    
+    if [ -z "$main_model" ] || [ -z "$fast_model" ]; then
+        print_error "缺少参数: 需要指定主模型和轻量级模型"
+        echo "用法: ccenv models set <主模型> <轻量级模型>"
+        echo
+        echo "示例:"
+        echo "  ccenv models set claude-3-5-sonnet-20241022 claude-3-haiku-20240307"
+        echo "  ccenv models set kimi-k2-turbo-preview kimi-k2-turbo-preview"
+        return 1
+    fi
+    
+    check_jq
+    init_config_store
+    
+    # 获取当前活动配置
+    local active_config=$(jq -r '.active' "$CONFIG_STORE")
+    
+    if [ "$active_config" == "null" ] || [ -z "$active_config" ]; then
+        print_error "没有活动配置，请先添加并激活一个配置"
+        echo "运行 'ccenv add' 来创建配置"
+        return 1
+    fi
+    
+    # 更新配置中的模型设置
+    jq --arg config "$active_config" --arg main "$main_model" --arg fast "$fast_model" \
+       '.configs[$config].main_model = $main | .configs[$config].fast_model = $fast' \
+       "$CONFIG_STORE" > "$CONFIG_STORE.tmp"
+    mv "$CONFIG_STORE.tmp" "$CONFIG_STORE"
+    
+    print_success "已设置模型配置:"
+    echo "  配置名称: $active_config"
+    echo "  主模型: $main_model"
+    echo "  轻量级模型: $fast_model"
+    
+    # 应用到当前环境
+    apply_model_settings "$main_model" "$fast_model"
+    
+    print_info "模型设置已应用到当前环境"
+    echo "请重新打开终端或运行以下命令使设置生效:"
+    echo "  source ~/.zshrc (zsh) 或 source ~/.bashrc (bash)"
+}
+
+# Function to show current model settings
+show_models() {
+    print_info "当前模型设置:"
+    echo -e "${BLUE}----------------------------------------${NC}"
+    
+    # 显示环境变量中的当前设置
+    if [ -n "$ANTHROPIC_MODEL" ]; then
+        echo "主模型 (ANTHROPIC_MODEL): $ANTHROPIC_MODEL"
+    else
+        echo "主模型 (ANTHROPIC_MODEL): (未设置)"
+    fi
+    
+    if [ -n "$ANTHROPIC_SMALL_FAST_MODEL" ]; then
+        echo "轻量级模型 (ANTHROPIC_SMALL_FAST_MODEL): $ANTHROPIC_SMALL_FAST_MODEL"
+    else
+        echo "轻量级模型 (ANTHROPIC_SMALL_FAST_MODEL): (未设置)"
+    fi
+    
+    echo -e "${BLUE}----------------------------------------${NC}"
+    
+    # 显示配置文件中的设置
+    check_jq
+    init_config_store
+    
+    local active_config=$(jq -r '.active' "$CONFIG_STORE")
+    
+    if [ "$active_config" != "null" ] && [ -n "$active_config" ]; then
+        echo
+        print_info "活动配置 '$active_config' 中的模型设置:"
+        echo -e "${BLUE}----------------------------------------${NC}"
+        
+        local main_model=$(jq -r ".configs.\"$active_config\".main_model // empty" "$CONFIG_STORE")
+        local fast_model=$(jq -r ".configs.\"$active_config\".fast_model // empty" "$CONFIG_STORE")
+        
+        if [ -n "$main_model" ]; then
+            echo "主模型: $main_model"
+        else
+            echo "主模型: (未设置)"
+        fi
+        
+        if [ -n "$fast_model" ]; then
+            echo "轻量级模型: $fast_model"
+        else
+            echo "轻量级模型: (未设置)"
+        fi
+        
+        echo -e "${BLUE}----------------------------------------${NC}"
+    fi
+}
+
+# Function to reset models to default
+reset_models() {
+    print_info "重置模型为默认设置..."
+    
+    # 设置默认模型
+    local default_main=""
+    local default_fast=""
+    
+    check_jq
+    init_config_store
+    
+    # 获取当前活动配置
+    local active_config=$(jq -r '.active' "$CONFIG_STORE")
+    
+    if [ "$active_config" != "null" ] && [ -n "$active_config" ]; then
+        # 更新配置中的模型设置
+        jq --arg config "$active_config" \
+           'del(.configs[$config].main_model) | del(.configs[$config].fast_model)' \
+           "$CONFIG_STORE" > "$CONFIG_STORE.tmp"
+        mv "$CONFIG_STORE.tmp" "$CONFIG_STORE"
+        
+        print_success "已重置模型为默认设置"
+        echo "  主模型: $default_main"
+        echo "  轻量级模型: $default_fast"
+        
+        # 应用到当前环境
+        apply_model_settings "$default_main" "$default_fast"
+        
+        print_info "请重新打开终端或运行以下命令使设置生效:"
+        echo "  source ~/.zshrc (zsh) 或 source ~/.bashrc (bash)"
+    else
+        print_error "没有活动配置，无法重置模型设置"
+    fi
+}
+
+# Function to apply model settings to environment
+apply_model_settings() {
+    local main_model="$1"
+    local fast_model="$2"
+    
+    # 检测当前shell和配置文件
+    detect_os_and_shell
+    
+    # 备份配置文件
+    if [ -f "$CONFIG_FILE" ]; then
+        cp "$CONFIG_FILE" "$CONFIG_FILE.backup.$(date +%Y%m%d_%H%M%S)"
+    fi
+    
+    # 移除旧的模型设置（包括注释标记）
+    if [[ "$CURRENT_SHELL" == "fish" ]]; then
+        sed -i.tmp -E '/^[[:space:]]*set[[:space:]]+-x[[:space:]]+ANTHROPIC_MODEL/d' "$CONFIG_FILE" 2>/dev/null || true
+        sed -i.tmp -E '/^[[:space:]]*set[[:space:]]+-x[[:space:]]+ANTHROPIC_SMALL_FAST_MODEL/d' "$CONFIG_FILE" 2>/dev/null || true
+    else
+        sed -i.tmp -E '/^[[:space:]]*export[[:space:]]+ANTHROPIC_MODEL=/d' "$CONFIG_FILE" 2>/dev/null || true
+        sed -i.tmp -E '/^[[:space:]]*export[[:space:]]+ANTHROPIC_SMALL_FAST_MODEL=/d' "$CONFIG_FILE" 2>/dev/null || true
+    fi
+    
+    # 移除模型配置的注释标记
+    sed -i.tmp '/# Claude Models Configuration/,/# End Claude Models Configuration/d' "$CONFIG_FILE" 2>/dev/null || true
+    
+    # 清理临时文件
+    rm -f "$CONFIG_FILE.tmp"
+    
+    # 只有当模型值非空时才写入环境变量
+    if [ -n "$main_model" ] && [ -n "$fast_model" ]; then
+        # 添加新的模型设置
+        if [[ "$CURRENT_SHELL" == "fish" ]]; then
+            cat >> "$CONFIG_FILE" << EOF
+
+# Claude Models Configuration
+set -x ANTHROPIC_MODEL "$main_model"
+set -x ANTHROPIC_SMALL_FAST_MODEL "$fast_model"
+# End Claude Models Configuration
+EOF
+        else
+            cat >> "$CONFIG_FILE" << EOF
+
+# Claude Models Configuration
+export ANTHROPIC_MODEL="$main_model"
+export ANTHROPIC_SMALL_FAST_MODEL="$fast_model"
+# End Claude Models Configuration
+EOF
+        fi
+        
+        # 在当前会话中也设置这些变量
+        export ANTHROPIC_MODEL="$main_model"
+        export ANTHROPIC_SMALL_FAST_MODEL="$fast_model"
+    else
+        # 如果模型值为空，则从当前会话中移除这些变量
+        unset ANTHROPIC_MODEL
+        unset ANTHROPIC_SMALL_FAST_MODEL
+    fi
 }
 
 # Function to check for updates
@@ -881,27 +1367,32 @@ show_help() {
     echo "用法: $0 <命令> [参数...]"
     echo
     echo "命令:"
-    echo "  add <name> <api-key> [base-url]                       添加或更新一个配置"
+    echo "  add                                                   交互式添加配置（问答模式）"
+    echo "  quick-add <name> <api-key> [base-url]                 快速添加配置"
     echo "  list                                                  列出所有配置"
     echo "  use <name>                                            切换到指定配置"
     echo "  switch                                                交互式选择并切换配置"
     echo "  update <name> [--api-key <key>] [--base-url <url>]    更新指定配置的密钥或URL"
     echo "  remove <name>                                         删除一个配置"
     echo "  import                                                读取当前环境变量并可选择保存为配置"
+    echo "  models <set|show|reset> [参数...]                     管理模型设置"
     echo "  check-update                                          检查是否有新版本可用"
     echo "  upgrade                                               升级到最新版本"
     echo "  version                                               显示版本信息"
     echo "  help                                                  显示此帮助信息"
     echo
     echo "示例:"
-    echo "  $0 add work sk-ant-api03-abcd1234                             # 添加一个名为'work'的配置，使用默认URL"
-    echo "  $0 add dev sk-ant-api03-abcd1234 https://dev-api.example.com  # 添加使用自定义URL的配置"
+    echo "  $0 add                                                        # 交互式添加配置（推荐）"
+    echo "  $0 quick-add work sk-ant-api03-abcd1234                       # 快速添加配置，使用默认URL"
+    echo "  $0 quick-add dev sk-ant-api03-abcd1234 https://dev-api.example.com  # 快速添加使用自定义URL的配置"
     echo "  $0 list                                                       # 列出所有配置"
     echo "  $0 use work                                                   # 切换到'work'配置"
     echo "  $0 switch                                                     # 交互式选择并切换配置"
     echo "  $0 update work --api-key sk-ant-api03-newkey1234              # 更新work配置的API密钥"
     echo "  $0 update work --base-url https://new-api.example.com         # 更新work配置的Base URL"
     echo "  $0 update work --api-key sk-ant-api03-new --base-url https://new-api.com  # 同时更新密钥和URL"
+    echo "  $0 models set kimi-k2-turbo-preview kimi-k2-turbo-preview     # 设置模型"
+    echo "  $0 models show                                                # 显示当前模型设置"
     echo "  $0 import                                                     # 读取并可选保存当前环境变量"
     echo
     echo "传统用法 (向后兼容):"
@@ -931,8 +1422,11 @@ main() {
     shift
     
     case "$command" in
-        add)
-            add_config "$1" "$2" "$3"
+        add|a)
+            add_config_interactive
+            ;;
+        quick-add|qa)
+            quick_add_config "$1" "$2" "$3"
             ;;
         list)
             list_configs
@@ -951,6 +1445,9 @@ main() {
             ;;
         import)
             import_current_config
+            ;;
+        models)
+            manage_models "$@"
             ;;
         check-update)
             check_for_updates
@@ -975,7 +1472,7 @@ main() {
                     ANTHROPIC_BASE_URL="$1"
                     print_info "使用自定义 Base URL: $ANTHROPIC_BASE_URL"
                 else
-                    ANTHROPIC_BASE_URL="https://api.aicodemirror.com/api/claudecode"
+                    ANTHROPIC_BASE_URL="https://api.anthropic.com"
                     print_info "使用默认 Base URL: $ANTHROPIC_BASE_URL"
                 fi
                 

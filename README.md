@@ -60,7 +60,8 @@ ccenv use work
 
 ```bash
 # Configuration Management
-ccenv add <name> <api-key> [base-url]     # Add new configuration
+ccenv add                                 # Interactive configuration wizard
+ccenv quick-add <name> <api-key> [base-url] # Quick add configuration
 ccenv list                                # List all configurations  
 ccenv use <name>                          # Switch to configuration
 ccenv switch                              # Interactive configuration selector
@@ -73,6 +74,7 @@ ccenv update <name> --api-key <key> --base-url <url>  # Update both
 
 # Utilities
 ccenv import                              # Import current environment variables
+ccenv models <set|show|reset>             # Manage model settings
 ccenv check-update                        # Check for new version
 ccenv upgrade                             # Upgrade to latest version
 ccenv version                             # Show version information
@@ -82,25 +84,83 @@ ccenv help                                # Show help information
 ### Short Aliases
 
 ```bash
-ccenv a work sk-xxx        # Same as: ccenv add work sk-xxx
+ccenv a                    # Same as: ccenv add
 ccenv l                    # Same as: ccenv list  
 ccenv s                    # Same as: ccenv switch
 ccenv u work               # Same as: ccenv use work
 ```
+
+## 🧙‍♂️ Interactive Configuration Wizard
+
+The `ccenv add` command provides a step-by-step interactive wizard to add configurations:
+
+```bash
+ccenv add
+```
+
+### Features:
+- **Step-by-step guidance**: Prompts for each configuration item
+- **Smart defaults**: Offers common server options (official, custom)
+- **Validation**: Ensures at least one configuration item is provided
+- **Secure input**: Hides API keys during entry
+- **Configuration preview**: Shows summary before saving
+- **Error handling**: Validates inputs and provides helpful feedback
+
+### Workflow:
+1. **Configuration Name**: Enter a unique name for your configuration
+2. **API Server**: Choose from preset options or enter custom URL
+3. **API Key**: Enter your Claude API key (input hidden for security)
+4. **Auth Token**: Optional authentication token
+5. **Review & Confirm**: Preview all settings before saving
+
+This is perfect for first-time users or when you need to set up complex configurations with multiple options.
+
+## 🤖 Model Management
+
+ccenv supports managing Claude model settings through the `models` command:
+
+### Commands:
+- `ccenv models set <main-model> <fast-model>` - Set both main and lightweight models
+- `ccenv models show` - Display current model settings
+- `ccenv models reset` - Reset to default Claude models
+
+### Examples:
+```bash
+# Set official Claude models
+ccenv models set claude-3-5-sonnet-20241022 claude-3-haiku-20240307
+
+# Set custom models (e.g., for third-party APIs)
+ccenv models set kimi-k2-turbo-preview kimi-k2-turbo-preview
+
+# View current settings
+ccenv models show
+
+# Reset to defaults
+ccenv models reset
+```
+
+### Environment Variables:
+- `ANTHROPIC_MODEL` - Main model for complex tasks
+- `ANTHROPIC_SMALL_FAST_MODEL` - Lightweight model for quick tasks
+
+Model settings are stored per configuration and applied when switching between configurations.
 
 ## 💡 Examples
 
 ### Typical Workflow
 
 ```bash
-# Setup work environment
-ccenv add work sk-ant-api03-work-key-here
+# Interactive configuration creation (step-by-step wizard)
+ccenv add
+
+# Quick setup work environment
+ccenv quick-add work sk-ant-api03-work-key-here
 
 # Setup development environment with custom server
-ccenv add dev sk-ant-api03-dev-key-here https://dev-api.example.com
+ccenv quick-add dev sk-ant-api03-dev-key-here https://dev-api.example.com
 
-# Setup China mirror
-ccenv add china sk-ant-api03-china-key https://api.aicodemirror.com/api/claudecode
+# Setup alternative server
+ccenv quick-add alt sk-ant-api03-alt-key https://custom-api.example.com
 
 # Switch between environments
 ccenv use work      # Switch to work
@@ -114,6 +174,9 @@ ccenv list
 ### Advanced Usage
 
 ```bash
+# Add new configuration interactively
+ccenv add
+
 # Update existing configuration
 ccenv update work --api-key sk-ant-api03-new-work-key
 ccenv update dev --base-url https://new-dev-api.example.com
@@ -122,6 +185,12 @@ ccenv update dev --base-url https://new-dev-api.example.com
 export ANTHROPIC_API_KEY="sk-ant-api03-xxx"
 export ANTHROPIC_BASE_URL="https://api.example.com"
 ccenv import  # Will prompt to save as new configuration
+
+# Manage model settings
+ccenv models set claude-3-5-sonnet-20241022 claude-3-haiku-20240307  # Set Claude models
+ccenv models set kimi-k2-turbo-preview kimi-k2-turbo-preview         # Set custom models
+ccenv models show                         # Show current model settings
+ccenv models reset                        # Reset to default models
 
 # Keep ccenv updated
 ccenv check-update                        # Check if new version available
