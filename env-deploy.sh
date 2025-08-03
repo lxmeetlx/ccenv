@@ -692,7 +692,7 @@ verify_config() {
     print_info "验证配置..."
     
     # Check if variables are set
-    if [ -n "$ANTHROPIC_BASE_URL" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
+    if [ -n "$ANTHROPIC_BASE_URL" ] && ([ -n "$ANTHROPIC_API_KEY" ] || [ -n "$ANTHROPIC_AUTH_TOKEN" ]); then
         print_success "环境变量验证成功"
         echo "ANTHROPIC_BASE_URL: $ANTHROPIC_BASE_URL"
         echo "ANTHROPIC_API_KEY: ****${ANTHROPIC_API_KEY: -4}"
